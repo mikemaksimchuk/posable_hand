@@ -195,7 +195,14 @@
         }, 
         function (error) {
             console.error('Error loading GLB:', error);
-            document.getElementById('status-msg').innerHTML = "<span class='text-red-400'>Error loading model!</span> Press F12 to check the console. Ensure 'interactive_hand.glb' is uploaded correctly.";
+            const errorText = error.message ? error.message : error.toString();
+            document.getElementById('status-msg').innerHTML = `
+                <span class='text-red-400 font-bold'>Error loading model: ${errorText}</span><br><br>
+                <span class='text-gray-300 font-normal'>
+                • If it says <b>"404"</b>: The file name/path is wrong (GitHub is strictly case-sensitive).<br>
+                • If it mentions <b>"DRACO"</b>: The 3D model was exported with compression. Ask the artist to uncheck "Compression" in Blender.<br>
+                • If you just fixed this: Press <b>Ctrl + F5</b> (Windows) or <b>Cmd + Shift + R</b> (Mac) to clear the cache.
+                </span>`;
         });
 
         // --- INTERACTIVITY (RAYCASTING) ---
