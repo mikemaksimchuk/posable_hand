@@ -27,8 +27,8 @@
     <!-- UI Overlay -->
     <div id="ui-panel" class="bg-black/80 backdrop-blur-md p-6 rounded-xl border border-white/10 shadow-2xl">
         <h1 class="text-xl font-bold mb-2">Interactive Hand Rig</h1>
-        <p class="text-xs text-gray-400 mb-6 border-b border-white/10 pb-4">
-            Loading interactive_hand.glb via GLTFLoader. Click the joint hitboxes to pose!
+        <p id="status-msg" class="text-xs text-yellow-400 font-bold mb-6 border-b border-white/10 pb-4">
+            Attempting to load interactive_hand.glb... Please wait. (Check console if it hangs)
         </p>
 
         <div class="mb-6 bg-blue-500/20 text-blue-200 text-xs p-3 rounded border border-blue-500/30">
@@ -136,14 +136,32 @@
         const hitboxMaterial = new THREE.MeshBasicMaterial({ 
             color: 0x00ff00, 
             transparent: true, 
-            opacity: 0.2, // Change to 0.0 to hide them completely once you are happy
+            opacity: 0.3, 
             depthTest: false 
         });
-        const hitboxGeo = new THREE.SphereGeometry(0.02, 16, 16); // Adjust 0.02 based on your model's scale
+        const hitboxGeo = new THREE.SphereGeometry(0.3, 16, 16); 
 
         loader.load('interactive_hand.glb', function (gltf) {
             const model = gltf.scene;
+            
+            // --- AUTO-SCALE & CENTER FIX ---
+            // This prevents the model from being microscopic or massive based on artist export settings
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3()).length();
+            const center = box.getCenter(new THREE.Vector3());
+
+            model.position.x += (model.position.x - center.x);
+            model.position.y += (model.position.y - center.y) + 2; // Hover slightly above the grid
+            model.position.z += (model.position.z - center.z);
+            
+            // Normalize scale so it fits perfectly in the 10-unit camera view
+            if (size > 0) {
+                const scale = 10 / size;
+                model.scale.setScalar(scale);
+            }
+
             scene.add(model);
+            document.getElementById('status-msg').innerHTML = "<span class='text-green-400'>Model Loaded Successfully!</span> Click the green joints to pose.";
             
             model.traverse((child) => {
                 if (child.isSkinnedMesh) {
@@ -157,6 +175,8 @@
                     
                     // Attach a hitbox to the bone for raycasting
                     const hitbox = new THREE.Mesh(hitboxGeo, hitboxMaterial);
+                    // Counter-scale the hitboxes so they don't warp if the master model is scaled
+                    hitbox.scale.setScalar(1 / model.scale.x); 
                     hitbox.userData.isJoint = true;
                     hitbox.userData.bone = child;
                     child.add(hitbox);
@@ -169,8 +189,13 @@
             characterSlider.dispatchEvent(new Event('input'));
             updateGender('fem');
             
-        }, undefined, function (error) {
+        }, 
+        function (xhr) {
+            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+        }, 
+        function (error) {
             console.error('Error loading GLB:', error);
+            document.getElementById('status-msg').innerHTML = "<span class='text-red-400'>Error loading model!</span> Press F12 to check the console. Ensure 'interactive_hand.glb' is uploaded correctly.";
         });
 
         // --- INTERACTIVITY (RAYCASTING) ---
