@@ -8,8 +8,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
-    <!-- Add the GLTFLoader script here -->
+    <!-- Add the GLTFLoader and KTX2Loader scripts here -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/KTX2Loader.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; font-family: 'Inter', sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -125,12 +126,18 @@
         const grid = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
         scene.add(grid);
 
-        // --- GLTF LOADER LOGIC ---
+        // --- GLTF & KTX2 LOADER LOGIC ---
         let handMesh = null;
         const skeletonBones = [];
         const selectableJoints = [];
         
+        // Setup KTX2 texture transcoder
+        const ktx2Loader = new THREE.KTX2Loader()
+            .setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/basis/')
+            .detectSupport(renderer);
+
         const loader = new THREE.GLTFLoader();
+        loader.setKTX2Loader(ktx2Loader);
         
         // We create small, semi-transparent spheres on the bones so the Raycaster has something physical to click
         const hitboxMaterial = new THREE.MeshBasicMaterial({ 
