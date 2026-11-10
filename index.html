@@ -8,6 +8,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    <!-- Add the GLTFLoader script here -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; font-family: 'Inter', sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
@@ -24,9 +26,9 @@
 
     <!-- UI Overlay -->
     <div id="ui-panel" class="bg-black/80 backdrop-blur-md p-6 rounded-xl border border-white/10 shadow-2xl">
-        <h1 class="text-xl font-bold mb-2">Procedural Hand Rig</h1>
+        <h1 class="text-xl font-bold mb-2">Interactive Hand Rig</h1>
         <p class="text-xs text-gray-400 mb-6 border-b border-white/10 pb-4">
-            Since no external .glb is present, this uses a procedural rig. Click the spherical joints to pose them!
+            Loading interactive_hand.glb via GLTFLoader. Click the joint hitboxes to pose!
         </p>
 
         <div class="mb-6 bg-blue-500/20 text-blue-200 text-xs p-3 rounded border border-blue-500/30">
@@ -123,100 +125,53 @@
         const grid = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
         scene.add(grid);
 
-        // --- PROCEDURAL RIG GENERATOR ---
-        const colorFair = new THREE.Color('#ffe0bd');
-        const colorDark = new THREE.Color('#2d160e');
-        
-        // Materials
-        const skinMaterial = new THREE.MeshStandardMaterial({ 
-            color: colorFair, 
-            roughness: 0.4,
-            metalness: 0.1 
-        });
-        const jointMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x5599ff, 
-            roughness: 0.2, 
-            metalness: 0.8 
-        });
-        
+        // --- GLTF LOADER LOGIC ---
+        let handMesh = null;
         const skeletonBones = [];
         const selectableJoints = [];
-        const jointMeshes = []; // For resizing knuckles
-
-        const rootGroup = new THREE.Group();
-        scene.add(rootGroup);
-
-        // Helper to create a bone segment
-        function createBone(length, thickness, parent, yOffset = 0, zOffset = 0) {
-            const boneGroup = new THREE.Group();
-            boneGroup.position.set(0, yOffset, zOffset);
-            parent.add(boneGroup);
-            skeletonBones.push(boneGroup);
-
-            // The joint visual (clickable)
-            const jointGeo = new THREE.SphereGeometry(thickness * 1.3, 16, 16);
-            const joint = new THREE.Mesh(jointGeo, jointMaterial);
-            joint.castShadow = true;
-            joint.userData.isJoint = true;
-            joint.userData.bone = boneGroup;
-            boneGroup.add(joint);
-            selectableJoints.push(joint);
-            jointMeshes.push(joint);
-
-            // The bone visual (flesh)
-            if (length > 0) {
-                const fleshGeo = new THREE.CylinderGeometry(thickness * 0.9, thickness, length, 16);
-                fleshGeo.translate(0, length / 2, 0); // Pivot at bottom
-                const flesh = new THREE.Mesh(fleshGeo, skinMaterial);
-                flesh.castShadow = true;
-                flesh.receiveShadow = true;
-                boneGroup.add(flesh);
-            }
-
-            return boneGroup;
-        }
-
-        // Build the hand
-        const wrist = createBone(0, 0.4, rootGroup);
         
-        // Palm
-        const palmGeo = new THREE.BoxGeometry(3, 3, 0.8);
-        palmGeo.translate(0, 1.5, 0);
-        const palm = new THREE.Mesh(palmGeo, skinMaterial);
-        palm.castShadow = true;
-        wrist.add(palm);
-
-        // Fingers setup
-        const fingerData = [
-            { name: 'Index', x: -1.2, length: [1.2, 0.8, 0.5], thick: 0.3 },
-            { name: 'Middle', x: -0.4, length: [1.4, 0.9, 0.6], thick: 0.32 },
-            { name: 'Ring', x: 0.4, length: [1.3, 0.85, 0.55], thick: 0.3 },
-            { name: 'Pinky', x: 1.2, length: [0.9, 0.6, 0.4], thick: 0.25 }
-        ];
-
-        fingerData.forEach(data => {
-            const knuckle = new THREE.Group();
-            knuckle.position.set(data.x, 3, 0);
-            wrist.add(knuckle);
-
-            const prox = createBone(data.length[0], data.thick, knuckle);
-            const inter = createBone(data.length[1], data.thick * 0.9, prox, data.length[0], 0);
-            const dist = createBone(data.length[2], data.thick * 0.8, inter, data.length[1], 0);
+        const loader = new THREE.GLTFLoader();
+        
+        // We create small, semi-transparent spheres on the bones so the Raycaster has something physical to click
+        const hitboxMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x00ff00, 
+            transparent: true, 
+            opacity: 0.2, // Change to 0.0 to hide them completely once you are happy
+            depthTest: false 
         });
+        const hitboxGeo = new THREE.SphereGeometry(0.02, 16, 16); // Adjust 0.02 based on your model's scale
 
-        // Thumb
-        const thumbBase = new THREE.Group();
-        thumbBase.position.set(-1.8, 0.5, 0.5);
-        thumbBase.rotation.z = Math.PI / 4; // Angle out
-        thumbBase.rotation.y = -Math.PI / 4; // Angle forward
-        wrist.add(thumbBase);
-
-        const thumbProx = createBone(1.0, 0.35, thumbBase);
-        const thumbInter = createBone(0.8, 0.32, thumbProx, 1.0, 0);
-        const thumbDist = createBone(0.6, 0.3, thumbInter, 0.8, 0);
-
-        // Center the hand
-        rootGroup.position.y = 1;
+        loader.load('interactive_hand.glb', function (gltf) {
+            const model = gltf.scene;
+            scene.add(model);
+            
+            model.traverse((child) => {
+                if (child.isSkinnedMesh) {
+                    handMesh = child;
+                    handMesh.castShadow = true;
+                    handMesh.receiveShadow = true;
+                }
+                
+                if (child.isBone) {
+                    skeletonBones.push(child);
+                    
+                    // Attach a hitbox to the bone for raycasting
+                    const hitbox = new THREE.Mesh(hitboxGeo, hitboxMaterial);
+                    hitbox.userData.isJoint = true;
+                    hitbox.userData.bone = child;
+                    child.add(hitbox);
+                    selectableJoints.push(hitbox);
+                }
+            });
+            
+            // Re-trigger UI inputs once loaded to apply default morphs
+            skinToneSlider.dispatchEvent(new Event('input'));
+            characterSlider.dispatchEvent(new Event('input'));
+            updateGender('fem');
+            
+        }, undefined, function (error) {
+            console.error('Error loading GLB:', error);
+        });
 
         // --- INTERACTIVITY (RAYCASTING) ---
         const raycaster = new THREE.Raycaster();
@@ -250,10 +205,18 @@
         const btnFem = document.getElementById('btn-fem');
         const btnMasc = document.getElementById('btn-masc');
         
+        const colorFair = new THREE.Color('#ffe0bd');
+        const colorDark = new THREE.Color('#2d160e');
+
         skinToneSlider.addEventListener('input', (e) => {
             const val = e.target.value / 100;
             document.getElementById('tone-val').innerText = `${e.target.value}%`;
-            skinMaterial.color.copy(colorFair).lerp(colorDark, val);
+            
+            if (handMesh && handMesh.material) {
+                // Tints the Albedo map based on the UI slider
+                const blendedColor = new THREE.Color().copy(colorFair).lerp(colorDark, val);
+                handMesh.material.color.copy(blendedColor);
+            }
         });
 
         characterSlider.addEventListener('input', (e) => {
@@ -263,11 +226,18 @@
             else if (val > 0.7) label = "Rough";
             document.getElementById('char-val').innerText = label;
 
-            // Simulate morph target by scaling joints (knuckles)
-            const scale = 0.7 + (val * 0.8); // Scale from 0.7x to 1.5x
-            jointMeshes.forEach(mesh => {
-                mesh.scale.set(scale, scale, scale);
-            });
+            if (handMesh && handMesh.morphTargetDictionary) {
+                const delicateIdx = handMesh.morphTargetDictionary['Character_Delicate'];
+                const roughIdx = handMesh.morphTargetDictionary['Character_Rough'];
+                
+                // Map 0-50 to Delicate, 50-100 to Rough
+                if (delicateIdx !== undefined) {
+                    handMesh.morphTargetInfluences[delicateIdx] = val < 0.5 ? (1.0 - (val * 2)) : 0;
+                }
+                if (roughIdx !== undefined) {
+                    handMesh.morphTargetInfluences[roughIdx] = val > 0.5 ? ((val - 0.5) * 2) : 0;
+                }
+            }
         });
 
         function updateGender(gender) {
@@ -277,16 +247,24 @@
                 btnMasc.classList.replace('bg-blue-500', 'hover:bg-white/20');
                 btnMasc.classList.remove('text-white', 'shadow');
                 
-                // Simulate morph target by scaling palm width
-                palm.scale.set(0.8, 1, 0.9);
+                if (handMesh && handMesh.morphTargetDictionary) {
+                    const femIdx = handMesh.morphTargetDictionary['Gender_Feminine'];
+                    const mascIdx = handMesh.morphTargetDictionary['Gender_Masculine'];
+                    if (femIdx !== undefined) handMesh.morphTargetInfluences[femIdx] = 1.0;
+                    if (mascIdx !== undefined) handMesh.morphTargetInfluences[mascIdx] = 0.0;
+                }
             } else {
                 btnMasc.classList.replace('hover:bg-white/20', 'bg-blue-500');
                 btnMasc.classList.add('text-white', 'shadow');
                 btnFem.classList.replace('bg-blue-500', 'hover:bg-white/20');
                 btnFem.classList.remove('text-white', 'shadow');
 
-                // Simulate morph target by scaling palm width
-                palm.scale.set(1.15, 1, 1.1);
+                if (handMesh && handMesh.morphTargetDictionary) {
+                    const femIdx = handMesh.morphTargetDictionary['Gender_Feminine'];
+                    const mascIdx = handMesh.morphTargetDictionary['Gender_Masculine'];
+                    if (femIdx !== undefined) handMesh.morphTargetInfluences[femIdx] = 0.0;
+                    if (mascIdx !== undefined) handMesh.morphTargetInfluences[mascIdx] = 1.0;
+                }
             }
         }
 
