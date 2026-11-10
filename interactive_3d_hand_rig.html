@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Hand Rig</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; font-family: 'Inter', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        #ui-panel { position: absolute; top: 20px; right: 20px; z-index: 10; width: 320px; max-height: 90vh; overflow-y: auto; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-panel" class="bg-black/80 backdrop-blur-md p-6 rounded-xl border border-white/10 shadow-2xl">
+        <h1 class="text-xl font-bold mb-2">Procedural Hand Rig</h1>
+        <p class="text-xs text-gray-400 mb-6 border-b border-white/10 pb-4">
+            Since no external .glb is present, this uses a procedural rig. Click the spherical joints to pose them!
+        </p>
+
+        <div class="mb-6 bg-blue-500/20 text-blue-200 text-xs p-3 rounded border border-blue-500/30">
+            <strong>Controls:</strong> Click & drag background to orbit. Click a joint (sphere) to rotate it.
+        </div>
+
+        <!-- Skin Tone Slider -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium mb-1 flex justify-between">
+                <span>Skin Tone</span>
+                <span id="tone-val" class="text-gray-400">50%</span>
+            </label>
+            <div class="flex items-center gap-2">
+                <div class="w-4 h-4 rounded-full bg-[#ffe0bd] border border-gray-500"></div>
+                <input type="range" id="skin-tone" min="0" max="100" value="50" class="w-full accent-blue-500">
+                <div class="w-4 h-4 rounded-full bg-[#2d160e] border border-gray-500"></div>
+            </div>
+        </div>
+
+        <!-- Character Slider -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium mb-1 flex justify-between">
+                <span>Character (Knuckle Size)</span>
+                <span id="char-val" class="text-gray-400">Medium</span>
+            </label>
+            <div class="flex items-center justify-between text-xs text-gray-400 mb-1">
+                <span>Delicate</span>
+                <span>Rough</span>
+            </div>
+            <input type="range" id="character" min="0" max="100" value="50" class="w-full accent-blue-500">
+        </div>
+
+        <!-- Gender Traits -->
+        <div class="mb-5">
+            <label class="block text-sm font-medium mb-2">Traits (Palm Width)</label>
+            <div class="flex bg-white/10 rounded-lg p-1">
+                <button id="btn-fem" class="flex-1 py-1.5 text-sm rounded-md bg-blue-500 text-white shadow transition-colors">Feminine</button>
+                <button id="btn-masc" class="flex-1 py-1.5 text-sm rounded-md hover:bg-white/20 transition-colors">Masculine</button>
+            </div>
+        </div>
+        
+        <button id="reset-btn" class="w-full mt-4 bg-white/10 hover:bg-white/20 py-2 rounded text-sm transition-colors border border-white/20">
+            Reset Pose & Settings
+        </button>
+    </div>
+
+    <script>
+        // --- THREE.JS SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Soft gradient-like background
+        scene.background = new THREE.Color('#1a1a1a');
+        scene.fog = new THREE.FogExp2('#1a1a1a', 0.03);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 8, 12);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // --- CONTROLS ---
+        const orbit = new THREE.OrbitControls(camera, renderer.domElement);
+        orbit.enableDamping = true;
+        orbit.dampingFactor = 0.05;
+        orbit.target.set(0, 2, 0);
+
+        const transformControl = new THREE.TransformControls(camera, renderer.domElement);
+        transformControl.addEventListener('dragging-changed', function (event) {
+            orbit.enabled = !event.value;
+        });
+        transformControl.setMode('rotate');
+        transformControl.setSpace('local'); 
+        scene.add(transformControl);
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffeedd, 1);
+        dirLight.position.set(-5, 10, 5);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.DirectionalLight(0x90b0d0, 0.5);
+        fillLight.position.set(5, 5, -5);
+        scene.add(fillLight);
+
+        // Add a floor grid
+        const grid = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
+        scene.add(grid);
+
+        // --- PROCEDURAL RIG GENERATOR ---
+        const colorFair = new THREE.Color('#ffe0bd');
+        const colorDark = new THREE.Color('#2d160e');
+        
+        // Materials
+        const skinMaterial = new THREE.MeshStandardMaterial({ 
+            color: colorFair, 
+            roughness: 0.4,
+            metalness: 0.1 
+        });
+        const jointMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x5599ff, 
+            roughness: 0.2, 
+            metalness: 0.8 
+        });
+        
+        const skeletonBones = [];
+        const selectableJoints = [];
+        const jointMeshes = []; // For resizing knuckles
+
+        const rootGroup = new THREE.Group();
+        scene.add(rootGroup);
+
+        // Helper to create a bone segment
+        function createBone(length, thickness, parent, yOffset = 0, zOffset = 0) {
+            const boneGroup = new THREE.Group();
+            boneGroup.position.set(0, yOffset, zOffset);
+            parent.add(boneGroup);
+            skeletonBones.push(boneGroup);
+
+            // The joint visual (clickable)
+            const jointGeo = new THREE.SphereGeometry(thickness * 1.3, 16, 16);
+            const joint = new THREE.Mesh(jointGeo, jointMaterial);
+            joint.castShadow = true;
+            joint.userData.isJoint = true;
+            joint.userData.bone = boneGroup;
+            boneGroup.add(joint);
+            selectableJoints.push(joint);
+            jointMeshes.push(joint);
+
+            // The bone visual (flesh)
+            if (length > 0) {
+                const fleshGeo = new THREE.CylinderGeometry(thickness * 0.9, thickness, length, 16);
+                fleshGeo.translate(0, length / 2, 0); // Pivot at bottom
+                const flesh = new THREE.Mesh(fleshGeo, skinMaterial);
+                flesh.castShadow = true;
+                flesh.receiveShadow = true;
+                boneGroup.add(flesh);
+            }
+
+            return boneGroup;
+        }
+
+        // Build the hand
+        const wrist = createBone(0, 0.4, rootGroup);
+        
+        // Palm
+        const palmGeo = new THREE.BoxGeometry(3, 3, 0.8);
+        palmGeo.translate(0, 1.5, 0);
+        const palm = new THREE.Mesh(palmGeo, skinMaterial);
+        palm.castShadow = true;
+        wrist.add(palm);
+
+        // Fingers setup
+        const fingerData = [
+            { name: 'Index', x: -1.2, length: [1.2, 0.8, 0.5], thick: 0.3 },
+            { name: 'Middle', x: -0.4, length: [1.4, 0.9, 0.6], thick: 0.32 },
+            { name: 'Ring', x: 0.4, length: [1.3, 0.85, 0.55], thick: 0.3 },
+            { name: 'Pinky', x: 1.2, length: [0.9, 0.6, 0.4], thick: 0.25 }
+        ];
+
+        fingerData.forEach(data => {
+            const knuckle = new THREE.Group();
+            knuckle.position.set(data.x, 3, 0);
+            wrist.add(knuckle);
+
+            const prox = createBone(data.length[0], data.thick, knuckle);
+            const inter = createBone(data.length[1], data.thick * 0.9, prox, data.length[0], 0);
+            const dist = createBone(data.length[2], data.thick * 0.8, inter, data.length[1], 0);
+        });
+
+        // Thumb
+        const thumbBase = new THREE.Group();
+        thumbBase.position.set(-1.8, 0.5, 0.5);
+        thumbBase.rotation.z = Math.PI / 4; // Angle out
+        thumbBase.rotation.y = -Math.PI / 4; // Angle forward
+        wrist.add(thumbBase);
+
+        const thumbProx = createBone(1.0, 0.35, thumbBase);
+        const thumbInter = createBone(0.8, 0.32, thumbProx, 1.0, 0);
+        const thumbDist = createBone(0.6, 0.3, thumbInter, 0.8, 0);
+
+        // Center the hand
+        rootGroup.position.y = 1;
+
+        // --- INTERACTIVITY (RAYCASTING) ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('pointerdown', (event) => {
+            // Ignore UI clicks
+            if (event.clientX > window.innerWidth - 350 && event.clientY < window.innerHeight) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(selectableJoints);
+
+            if (intersects.length > 0) {
+                const hitObj = intersects[0].object;
+                if(hitObj.userData.isJoint) {
+                    transformControl.attach(hitObj.userData.bone);
+                }
+            } else {
+                if(!transformControl.dragging) {
+                    transformControl.detach();
+                }
+            }
+        });
+
+        // --- UI LOGIC ---
+        const skinToneSlider = document.getElementById('skin-tone');
+        const characterSlider = document.getElementById('character');
+        const btnFem = document.getElementById('btn-fem');
+        const btnMasc = document.getElementById('btn-masc');
+        
+        skinToneSlider.addEventListener('input', (e) => {
+            const val = e.target.value / 100;
+            document.getElementById('tone-val').innerText = `${e.target.value}%`;
+            skinMaterial.color.copy(colorFair).lerp(colorDark, val);
+        });
+
+        characterSlider.addEventListener('input', (e) => {
+            const val = e.target.value / 100; 
+            let label = "Medium";
+            if (val < 0.3) label = "Delicate";
+            else if (val > 0.7) label = "Rough";
+            document.getElementById('char-val').innerText = label;
+
+            // Simulate morph target by scaling joints (knuckles)
+            const scale = 0.7 + (val * 0.8); // Scale from 0.7x to 1.5x
+            jointMeshes.forEach(mesh => {
+                mesh.scale.set(scale, scale, scale);
+            });
+        });
+
+        function updateGender(gender) {
+            if (gender === 'fem') {
+                btnFem.classList.replace('hover:bg-white/20', 'bg-blue-500');
+                btnFem.classList.add('text-white', 'shadow');
+                btnMasc.classList.replace('bg-blue-500', 'hover:bg-white/20');
+                btnMasc.classList.remove('text-white', 'shadow');
+                
+                // Simulate morph target by scaling palm width
+                palm.scale.set(0.8, 1, 0.9);
+            } else {
+                btnMasc.classList.replace('hover:bg-white/20', 'bg-blue-500');
+                btnMasc.classList.add('text-white', 'shadow');
+                btnFem.classList.replace('bg-blue-500', 'hover:bg-white/20');
+                btnFem.classList.remove('text-white', 'shadow');
+
+                // Simulate morph target by scaling palm width
+                palm.scale.set(1.15, 1, 1.1);
+            }
+        }
+
+        btnFem.addEventListener('click', () => updateGender('fem'));
+        btnMasc.addEventListener('click', () => updateGender('masc'));
+
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            skinToneSlider.value = 50;
+            skinToneSlider.dispatchEvent(new Event('input'));
+            characterSlider.value = 50;
+            characterSlider.dispatchEvent(new Event('input'));
+            updateGender('fem');
+
+            transformControl.detach();
+            
+            // Reset bone rotations
+            skeletonBones.forEach(bone => {
+                bone.rotation.set(0, 0, 0);
+            });
+            
+            orbit.reset();
+        });
+
+        // Initialize UI State
+        skinToneSlider.dispatchEvent(new Event('input'));
+        characterSlider.dispatchEvent(new Event('input'));
+        updateGender('fem');
+
+        // --- ANIMATION LOOP ---
+        window.addEventListener('resize', onWindowResize, false);
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            orbit.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
